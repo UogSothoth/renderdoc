@@ -51,3 +51,5 @@ __pycache__
 /_ReSharper.Caches
 /.idea
 *.vcxproj
+/renderdoc/_ReSharper.Caches
+/renderdoc/.idea
