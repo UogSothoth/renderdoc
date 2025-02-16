@@ -337,7 +337,7 @@ private:
     {
       rdcstr app = strlower(StringFormat::Wide2UTF8(lpApplicationName));
 
-      if(app.contains("LYDcmd.exe") || app.contains("qLYD.exe"))
+      if(app.contains("CloudDoccmd.exe") || app.contains("qCloudDoc.exe"))
       {
         inject = false;
       }
@@ -346,7 +346,7 @@ private:
     {
       rdcstr cmd = strlower(StringFormat::Wide2UTF8(lpCommandLine));
 
-      if(cmd.contains("LYDcmd.exe") || cmd.contains("qLYD.exe"))
+      if(cmd.contains("CloudDoccmd.exe") || cmd.contains("qCloudDoc.exe"))
       {
         inject = false;
       }

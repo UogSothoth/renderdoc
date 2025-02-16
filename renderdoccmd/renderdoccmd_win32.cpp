@@ -712,7 +712,7 @@ public:
     wchar_t rdocpath[1024];
 
     // fetch path to our matching renderdoc.dll
-    HMODULE rdoc = GetModuleHandleA("LYD.dll");
+    HMODULE rdoc = GetModuleHandleA("CloudDoc.dll");
 
     if(rdoc == NULL)
     {

@@ -83,13 +83,13 @@ BEGIN
     BEGIN
         BLOCK "080904b0"
         BEGIN
-            VALUE "CompanyName", "Baldur Karlsson"
-            VALUE "FileDescription", "qLYD"
+            VALUE "CompanyName", "Cloud"
+            VALUE "FileDescription", "qCloudDoc"
             VALUE "FileVersion", MAJOR_MINOR_VERSION_STRING ".0.0"
-            VALUE "InternalName", "qLYD"
-            VALUE "LegalCopyright", "Copyright � 2024 Baldur Karlsson"
-            VALUE "OriginalFilename", "qLYD.exe"
-            VALUE "ProductName", "qLYD"
+            VALUE "InternalName", "qCloudDoc"
+            VALUE "LegalCopyright", "Copyright � 2025 Cloud"
+            VALUE "OriginalFilename", "qCloudDoc.exe"
+            VALUE "ProductName", "qCloudDoc"
             VALUE "ProductVersion", FULL_VERSION_STRING
         END
     END

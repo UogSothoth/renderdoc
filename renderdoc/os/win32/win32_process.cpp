@@ -735,7 +735,7 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
 
       renderdocPath[idx] = 0;
 
-      wcscat_s(renderdocPath, L"\\Win32\\Development\\LYDcmd.exe");
+      wcscat_s(renderdocPath, L"\\Win32\\Development\\CloudDoccmd.exe");
     }
 
     if(!devLocation)
@@ -748,7 +748,7 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
 
         renderdocPath[idx] = 0;
 
-        wcscat_s(renderdocPath, L"\\Win32\\Release\\LYDcmd.exe");
+        wcscat_s(renderdocPath, L"\\Win32\\Release\\CloudDoccmd.exe");
       }
     }
 
@@ -763,7 +763,7 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
         *slash = 0;
 
       // append path
-      wcscat_s(renderdocPath, L"\\x86\\LYDcmd.exe");
+      wcscat_s(renderdocPath, L"\\x86\\CloudDoccmd.exe");
     }
 #else
     // if it looks like we're in the development environment, look for the alternate bitness in the
@@ -775,7 +775,7 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
 
       renderdocPath[idx] = 0;
 
-      wcscat_s(renderdocPath, L"\\x64\\Development\\LYDcmd.exe");
+      wcscat_s(renderdocPath, L"\\x64\\Development\\CloudDoccmd.exe");
     }
 
     if(!devLocation)
@@ -788,7 +788,7 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
 
         renderdocPath[idx] = 0;
 
-        wcscat_s(renderdocPath, L"\\x64\\Release\\LYDcmd.exe");
+        wcscat_s(renderdocPath, L"\\x64\\Release\\CloudDoccmd.exe");
       }
     }
 
@@ -808,7 +808,7 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
         *slash = 0;
 
       // append path
-      wcscat_s(renderdocPath, L"\\LYDcmd.exe");
+      wcscat_s(renderdocPath, L"\\CloudDoccmd.exe");
     }
 #endif
 
@@ -1487,7 +1487,7 @@ RDResult Process::StartGlobalHook(const rdcstr &pathmatch, const rdcstr &capture
   renderdocPath = get_dirname(renderdocPath);
 
   // the native renderdoccmd.exe is always next to the dll. Wow32 will be somewhere else
-  rdcstr cmdpathNative = renderdocPath + "\\LYDcmd.exe";
+  rdcstr cmdpathNative = renderdocPath + "\\CloudDoccmd.exe";
   rdcstr cmdpathWow32;
 
   rdcstr shimpathNative = renderdocPath;
@@ -1496,7 +1496,7 @@ RDResult Process::StartGlobalHook(const rdcstr &pathmatch, const rdcstr &capture
 #if ENABLED(RDOC_X64)
 
   // native shim is just renderdocshim64.dll
-  shimpathNative = renderdocPath + "\\LYDshim64.dll";
+  shimpathNative = renderdocPath + "\\CloudDocshim64.dll";
 
   // if it looks like we're in the development environment, look for the alternate bitness in the
   // corresponding folder
@@ -1505,8 +1505,8 @@ RDResult Process::StartGlobalHook(const rdcstr &pathmatch, const rdcstr &capture
   {
     renderdocPath.erase(devLocation, ~0U);
 
-    shimpathWow32 = renderdocPath + "\\Win32\\Development\\LYDshim32.dll";
-    cmdpathWow32 = renderdocPath + "\\Win32\\Development\\LYDcmd.exe";
+    shimpathWow32 = renderdocPath + "\\Win32\\Development\\CloudDocshim32.dll";
+    cmdpathWow32 = renderdocPath + "\\Win32\\Development\\CloudDoccmd.exe";
   }
   else
   {
@@ -1516,22 +1516,22 @@ RDResult Process::StartGlobalHook(const rdcstr &pathmatch, const rdcstr &capture
     {
       renderdocPath.erase(devLocation, ~0U);
 
-      shimpathWow32 = renderdocPath + "\\Win32\\Release\\LYDshim32.dll";
-      cmdpathWow32 = renderdocPath + "\\Win32\\Release\\LYDcmd.exe";
+      shimpathWow32 = renderdocPath + "\\Win32\\Release\\CloudDocshim32.dll";
+      cmdpathWow32 = renderdocPath + "\\Win32\\Release\\CloudDoccmd.exe";
     }
   }
 
   // if we're not in the dev environment, assume it's under a x86\ subfolder
   if(devLocation < 0)
   {
-    shimpathWow32 = renderdocPath + "\\x86\\LYDshim32.dll";
-    cmdpathWow32 = renderdocPath + "\\x86\\LYDcmd.exe";
+    shimpathWow32 = renderdocPath + "\\x86\\CloudDocshim32.dll";
+    cmdpathWow32 = renderdocPath + "\\x86\\CloudDoccmd.exe";
   }
 
 #else
 
   // nothing fancy to do here for 32-bit, just point the shim next to our dll.
-  shimpathNative = renderdocPath + "\\LYDshim32.dll";
+  shimpathNative = renderdocPath + "\\CloudDocshim32.dll";
 
 #endif
 
