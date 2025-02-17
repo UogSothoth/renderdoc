@@ -372,6 +372,11 @@ struct DataType
   const Vector &vector() const { return basicType.vector; }
   const Matrix &matrix() const { return basicType; }
   Id InnerType() const { return pointerType.baseId; }
+  bool IsU32() const
+  {
+    return type == Type::ScalarType && basicType.vector.scalar.width == 32 &&
+           basicType.vector.scalar.type == Op::TypeInt && !basicType.vector.scalar.signedness;
+  }
   bool IsOpaqueType() const
   {
     switch(type)
@@ -532,6 +537,15 @@ struct Section
   };
 };
 
+enum class ThreadScope : uint32_t
+{
+  Quad = 0x1,
+  Subgroup = 0x2,
+  Workgroup = 0x4,
+};
+
+BITMASK_OPERATORS(ThreadScope);
+
 class Processor
 {
 public:
@@ -622,6 +636,8 @@ protected:
   };
 
   LogicalSection m_Sections[Section::Count];
+
+  ThreadScope m_ThreadScope;
 
 private:
   struct DeferredMemberDecoration

@@ -30,6 +30,7 @@
 RDOC_DEBUG_CONFIG(
     bool, Vulkan_Debug_VerboseCommandRecording, false,
     "Add verbose logging around recording and submission of command buffers in vulkan.");
+RDOC_EXTERN_CONFIG(bool, Vulkan_Hack_DisableRPNormalisation);
 
 static rdcstr ToHumanStr(const VkAttachmentLoadOp &el)
 {
@@ -38,7 +39,7 @@ static rdcstr ToHumanStr(const VkAttachmentLoadOp &el)
     case VK_ATTACHMENT_LOAD_OP_LOAD: return "Load";
     case VK_ATTACHMENT_LOAD_OP_CLEAR: return "Clear";
     case VK_ATTACHMENT_LOAD_OP_DONT_CARE: return "Don't Care";
-    case VK_ATTACHMENT_LOAD_OP_NONE_KHR: return "None";
+    case VK_ATTACHMENT_LOAD_OP_NONE: return "None";
   }
   END_ENUM_STRINGISE();
 }
@@ -764,6 +765,64 @@ void WrappedVulkan::ApplyRPLoadDiscards(VkCommandBuffer commandBuffer, VkRect2D 
           GetDebugManager()->FillWithDiscardPattern(commandBuffer, DiscardType::RenderPassLoad,
                                                     image, initialLayout, range, renderArea);
       }
+    }
+  }
+}
+
+void WrappedVulkan::ApplyRPStoreDiscards(VkCommandBuffer commandBuffer, VkRect2D renderArea,
+                                         ResourceId currentRP,
+                                         const rdcarray<ResourceId> &attachments)
+{
+  const VulkanCreationInfo::RenderPass &rpinfo = m_CreationInfo.m_RenderPass[currentRP];
+
+  for(size_t i = 0; i < attachments.size(); i++)
+  {
+    if(!rpinfo.attachments[i].used)
+      continue;
+
+    const VulkanCreationInfo::ImageView &viewInfo = m_CreationInfo.m_ImageView[attachments[i]];
+    VkImage image = GetResourceManager()->GetCurrentHandle<VkImage>(viewInfo.image);
+
+    VkImageLayout layout = rpinfo.attachments[i].finalLayout;
+
+    if(Vulkan_Hack_DisableRPNormalisation())
+      layout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    if(IsStencilFormat(viewInfo.format))
+    {
+      // check to see if stencil and depth store ops are different and apply them
+      // individually here
+      const bool depthDontCareStore =
+          (rpinfo.attachments[i].storeOp == VK_ATTACHMENT_STORE_OP_DONT_CARE);
+      const bool stencilDontCareStore =
+          (rpinfo.attachments[i].stencilStoreOp == VK_ATTACHMENT_STORE_OP_DONT_CARE);
+
+      // if they're both don't care then we can do a simple discard clear
+      if(depthDontCareStore && stencilDontCareStore)
+      {
+        GetDebugManager()->FillWithDiscardPattern(commandBuffer, DiscardType::RenderPassStore,
+                                                  image, layout, viewInfo.range, renderArea);
+      }
+      else
+      {
+        // otherwise only don't care the appropriate aspects
+        VkImageSubresourceRange range = viewInfo.range;
+
+        range.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+        if(depthDontCareStore && (viewInfo.range.aspectMask & range.aspectMask) != 0)
+          GetDebugManager()->FillWithDiscardPattern(commandBuffer, DiscardType::RenderPassStore,
+                                                    image, layout, range, renderArea);
+
+        range.aspectMask = VK_IMAGE_ASPECT_STENCIL_BIT;
+        if(stencilDontCareStore && (viewInfo.range.aspectMask & range.aspectMask) != 0)
+          GetDebugManager()->FillWithDiscardPattern(commandBuffer, DiscardType::RenderPassStore,
+                                                    image, layout, range, renderArea);
+      }
+    }
+    else if(rpinfo.attachments[i].storeOp == VK_ATTACHMENT_STORE_OP_DONT_CARE)
+    {
+      GetDebugManager()->FillWithDiscardPattern(commandBuffer, DiscardType::RenderPassStore, image,
+                                                layout, viewInfo.range, renderArea);
     }
   }
 }
@@ -2076,7 +2135,7 @@ void WrappedVulkan::vkCmdBeginRenderPass(VkCommandBuffer commandBuffer,
       if(renderArea_covers_entire_framebuffer && framebuffer_reference_entire_attachment)
       {
         if(rpInfo->loadOpTable[i] != VK_ATTACHMENT_LOAD_OP_LOAD &&
-           rpInfo->loadOpTable[i] != VK_ATTACHMENT_LOAD_OP_NONE_KHR)
+           rpInfo->loadOpTable[i] != VK_ATTACHMENT_LOAD_OP_NONE)
         {
           refType = eFrameRef_CompleteWrite;
         }
@@ -2274,58 +2333,7 @@ bool WrappedVulkan::Serialise_vkCmdEndRenderPass(SerialiserType &ser, VkCommandB
         if(m_ReplayOptions.optimisation != ReplayOptimisationLevel::Fastest &&
            !m_FeedbackRPs.contains(currentRP))
         {
-          const VulkanCreationInfo::RenderPass &rpinfo = m_CreationInfo.m_RenderPass[currentRP];
-
-          for(size_t i = 0; i < attachments.size(); i++)
-          {
-            if(!rpinfo.attachments[i].used)
-              continue;
-
-            const VulkanCreationInfo::ImageView &viewInfo =
-                m_CreationInfo.m_ImageView[attachments[i]];
-            VkImage image = GetResourceManager()->GetCurrentHandle<VkImage>(viewInfo.image);
-
-            if(IsStencilFormat(viewInfo.format))
-            {
-              // check to see if stencil and depth store ops are different and apply them
-              // individually here
-              const bool depthDontCareStore =
-                  (rpinfo.attachments[i].storeOp == VK_ATTACHMENT_STORE_OP_DONT_CARE);
-              const bool stencilDontCareStore =
-                  (rpinfo.attachments[i].stencilStoreOp == VK_ATTACHMENT_STORE_OP_DONT_CARE);
-
-              // if they're both don't care then we can do a simple discard clear
-              if(depthDontCareStore && stencilDontCareStore)
-              {
-                GetDebugManager()->FillWithDiscardPattern(
-                    commandBuffer, DiscardType::RenderPassStore, image,
-                    rpinfo.attachments[i].finalLayout, viewInfo.range, renderArea);
-              }
-              else
-              {
-                // otherwise only don't care the appropriate aspects
-                VkImageSubresourceRange range = viewInfo.range;
-
-                range.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-                if(depthDontCareStore && (viewInfo.range.aspectMask & range.aspectMask) != 0)
-                  GetDebugManager()->FillWithDiscardPattern(
-                      commandBuffer, DiscardType::RenderPassStore, image,
-                      rpinfo.attachments[i].finalLayout, range, renderArea);
-
-                range.aspectMask = VK_IMAGE_ASPECT_STENCIL_BIT;
-                if(stencilDontCareStore && (viewInfo.range.aspectMask & range.aspectMask) != 0)
-                  GetDebugManager()->FillWithDiscardPattern(
-                      commandBuffer, DiscardType::RenderPassStore, image,
-                      rpinfo.attachments[i].finalLayout, range, renderArea);
-              }
-            }
-            else if(rpinfo.attachments[i].storeOp == VK_ATTACHMENT_STORE_OP_DONT_CARE)
-            {
-              GetDebugManager()->FillWithDiscardPattern(commandBuffer, DiscardType::RenderPassStore,
-                                                        image, rpinfo.attachments[i].finalLayout,
-                                                        viewInfo.range, renderArea);
-            }
-          }
+          ApplyRPStoreDiscards(commandBuffer, renderArea, currentRP, attachments);
         }
 
         GetResourceManager()->RecordBarriers(m_BakedCmdBufferInfo[m_LastCmdBufferID].imageStates,
@@ -2339,6 +2347,14 @@ bool WrappedVulkan::Serialise_vkCmdEndRenderPass(SerialiserType &ser, VkCommandB
 
         m_BakedCmdBufferInfo[m_LastCmdBufferID].renderPassOpen = false;
         m_BakedCmdBufferInfo[m_LastCmdBufferID].endBarriers.append(GetImplicitRenderPassBarriers(~0U));
+
+        ResourceId currentRP = GetCmdRenderState().GetRenderPass();
+
+        if(Vulkan_Hack_DisableRPNormalisation() && !m_FeedbackRPs.contains(currentRP))
+        {
+          ApplyRPStoreDiscards(commandBuffer, GetCmdRenderState().renderArea, currentRP,
+                               GetCmdRenderState().GetFramebufferAttachments());
+        }
       }
     }
     else
@@ -2736,7 +2752,7 @@ void WrappedVulkan::vkCmdBeginRenderPass2(VkCommandBuffer commandBuffer,
       if(renderArea_covers_entire_framebuffer && framebuffer_reference_entire_attachment)
       {
         if(rpInfo->loadOpTable[i] != VK_ATTACHMENT_LOAD_OP_LOAD &&
-           rpInfo->loadOpTable[i] != VK_ATTACHMENT_LOAD_OP_NONE_KHR)
+           rpInfo->loadOpTable[i] != VK_ATTACHMENT_LOAD_OP_NONE)
         {
           refType = eFrameRef_CompleteWrite;
         }
@@ -2942,7 +2958,6 @@ bool WrappedVulkan::Serialise_vkCmdEndRenderPass2(SerialiserType &ser, VkCommand
 
         rdcarray<ResourceId> attachments;
         VkRect2D renderArea;
-        const VulkanCreationInfo::RenderPass &rpinfo = m_CreationInfo.m_RenderPass[currentRP];
 
         {
           VulkanRenderState &renderstate = GetCmdRenderState();
@@ -2968,20 +2983,7 @@ bool WrappedVulkan::Serialise_vkCmdEndRenderPass2(SerialiserType &ser, VkCommand
         if(m_ReplayOptions.optimisation != ReplayOptimisationLevel::Fastest &&
            !m_FeedbackRPs.contains(currentRP))
         {
-          for(size_t i = 0; i < attachments.size(); i++)
-          {
-            const VulkanCreationInfo::ImageView &viewInfo =
-                m_CreationInfo.m_ImageView[attachments[i]];
-            VkImage image = GetResourceManager()->GetCurrentHandle<VkImage>(viewInfo.image);
-
-            if(rpinfo.attachments[i].storeOp == VK_ATTACHMENT_STORE_OP_DONT_CARE &&
-               rpinfo.attachments[i].used)
-            {
-              GetDebugManager()->FillWithDiscardPattern(commandBuffer, DiscardType::RenderPassStore,
-                                                        image, rpinfo.attachments[i].finalLayout,
-                                                        viewInfo.range, renderArea);
-            }
-          }
+          ApplyRPStoreDiscards(commandBuffer, renderArea, currentRP, attachments);
         }
 
         GetResourceManager()->RecordBarriers(m_BakedCmdBufferInfo[m_LastCmdBufferID].imageStates,
@@ -3009,6 +3011,13 @@ bool WrappedVulkan::Serialise_vkCmdEndRenderPass2(SerialiserType &ser, VkCommand
           {
             stateOffsets[i] = fragmentDensityOffsetStruct->pFragmentDensityOffsets[i];
           }
+        }
+
+        ResourceId currentRP = GetCmdRenderState().GetRenderPass();
+        if(Vulkan_Hack_DisableRPNormalisation() && !m_FeedbackRPs.contains(currentRP))
+        {
+          ApplyRPStoreDiscards(commandBuffer, GetCmdRenderState().renderArea, currentRP,
+                               GetCmdRenderState().GetFramebufferAttachments());
         }
       }
     }
@@ -3209,7 +3218,7 @@ bool WrappedVulkan::Serialise_vkCmdBindPipeline(SerialiserType &ser, VkCommandBu
               renderstate.shadingRateCombiners[0] = pipeInfo.shadingRateCombiners[0];
               renderstate.shadingRateCombiners[1] = pipeInfo.shadingRateCombiners[1];
             }
-            if(!pipeInfo.dynamicStates[VkDynamicLineStippleKHR])
+            if(!pipeInfo.dynamicStates[VkDynamicLineStipple])
             {
               renderstate.stippleFactor = pipeInfo.stippleFactor;
               renderstate.stipplePattern = pipeInfo.stipplePattern;
@@ -3869,7 +3878,7 @@ bool WrappedVulkan::Serialise_vkCmdBindIndexBuffer(SerialiserType &ser,
 
           if(indexType == VK_INDEX_TYPE_UINT32)
             renderstate.ibuffer.bytewidth = 4;
-          else if(indexType == VK_INDEX_TYPE_UINT8_KHR)
+          else if(indexType == VK_INDEX_TYPE_UINT8)
             renderstate.ibuffer.bytewidth = 1;
           else
             renderstate.ibuffer.bytewidth = 2;
@@ -3881,7 +3890,7 @@ bool WrappedVulkan::Serialise_vkCmdBindIndexBuffer(SerialiserType &ser,
       // track while reading, as we need to bind current topology & index byte width in AddAction
       if(indexType == VK_INDEX_TYPE_UINT32)
         m_BakedCmdBufferInfo[m_LastCmdBufferID].state.ibuffer.bytewidth = 4;
-      else if(indexType == VK_INDEX_TYPE_UINT8_KHR)
+      else if(indexType == VK_INDEX_TYPE_UINT8)
         m_BakedCmdBufferInfo[m_LastCmdBufferID].state.ibuffer.bytewidth = 1;
       else
         m_BakedCmdBufferInfo[m_LastCmdBufferID].state.ibuffer.bytewidth = 2;
@@ -7305,24 +7314,36 @@ bool WrappedVulkan::Serialise_vkCmdBeginRendering(SerialiserType &ser, VkCommand
         // effects of that are never user-visible.
         if(m_ReplayOptions.optimisation != ReplayOptimisationLevel::Fastest)
         {
-          for(uint32_t i = 0; i < unwrappedInfo->colorAttachmentCount + 2; i++)
+          if(Vulkan_Hack_DisableRPNormalisation())
           {
-            VkRenderingAttachmentInfo *att =
-                (VkRenderingAttachmentInfo *)unwrappedInfo->pColorAttachments + i;
+            static bool warned = false;
 
-            if(i == unwrappedInfo->colorAttachmentCount)
-              att = (VkRenderingAttachmentInfo *)unwrappedInfo->pDepthAttachment;
-            else if(i == unwrappedInfo->colorAttachmentCount + 1)
-              att = (VkRenderingAttachmentInfo *)unwrappedInfo->pStencilAttachment;
+            if(!warned)
+              RDCWARN("RP attachment normalisation not applied!");
 
-            if(!att)
-              continue;
+            warned = true;
+          }
+          else
+          {
+            for(uint32_t i = 0; i < unwrappedInfo->colorAttachmentCount + 2; i++)
+            {
+              VkRenderingAttachmentInfo *att =
+                  (VkRenderingAttachmentInfo *)unwrappedInfo->pColorAttachments + i;
 
-            if(att->storeOp != VK_ATTACHMENT_STORE_OP_NONE)
-              att->storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+              if(i == unwrappedInfo->colorAttachmentCount)
+                att = (VkRenderingAttachmentInfo *)unwrappedInfo->pDepthAttachment;
+              else if(i == unwrappedInfo->colorAttachmentCount + 1)
+                att = (VkRenderingAttachmentInfo *)unwrappedInfo->pStencilAttachment;
 
-            if(att->loadOp == VK_ATTACHMENT_LOAD_OP_DONT_CARE)
-              att->loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+              if(!att)
+                continue;
+
+              if(att->storeOp != VK_ATTACHMENT_STORE_OP_NONE)
+                att->storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+              if(att->loadOp == VK_ATTACHMENT_LOAD_OP_DONT_CARE)
+                att->loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+            }
           }
         }
 
@@ -7514,7 +7535,7 @@ void WrappedVulkan::vkCmdBeginRendering(VkCommandBuffer commandBuffer,
          pRenderingInfo->renderArea.extent.height == imInfo.extent.height)
       {
         // if we're either clearing or discarding, this can be considered completely written
-        if(att->loadOp != VK_ATTACHMENT_LOAD_OP_LOAD && att->loadOp != VK_ATTACHMENT_LOAD_OP_NONE_KHR)
+        if(att->loadOp != VK_ATTACHMENT_LOAD_OP_LOAD && att->loadOp != VK_ATTACHMENT_LOAD_OP_NONE)
         {
           refType = eFrameRef_CompleteWrite;
         }
@@ -7550,13 +7571,13 @@ bool WrappedVulkan::Serialise_vkCmdEndRendering(SerialiserType &ser, VkCommandBu
 
     if(IsActiveReplaying(m_State))
     {
+      VulkanRenderState &renderstate = GetCmdRenderState();
+
+      bool suspending = (renderstate.dynamicRendering.flags & VK_RENDERING_SUSPENDING_BIT) != 0;
+
       if(InRerecordRange(m_LastCmdBufferID))
       {
         commandBuffer = RerecordCmdBuf(m_LastCmdBufferID);
-
-        VulkanRenderState &renderstate = GetCmdRenderState();
-
-        bool suspending = (renderstate.dynamicRendering.flags & VK_RENDERING_SUSPENDING_BIT) != 0;
 
         if(ShouldUpdateRenderpassActive(m_LastCmdBufferID, true))
         {
@@ -7648,6 +7669,58 @@ bool WrappedVulkan::Serialise_vkCmdEndRendering(SerialiserType &ser, VkCommandBu
         ObjDisp(commandBuffer)->CmdEndRendering(Unwrap(commandBuffer));
 
         m_BakedCmdBufferInfo[m_LastCmdBufferID].renderPassOpen = false;
+
+        // only do discards when not suspending!
+        if(Vulkan_Hack_DisableRPNormalisation() && !suspending)
+        {
+          rdcarray<VkRenderingAttachmentInfo> dynAtts = renderstate.dynamicRendering.color;
+          dynAtts.push_back(renderstate.dynamicRendering.depth);
+
+          size_t depthIdx = dynAtts.size() - 1;
+          size_t stencilIdx = ~0U;
+          VkImageAspectFlags depthAspects = VK_IMAGE_ASPECT_DEPTH_BIT;
+
+          // if we have different images attached, or different store ops, treat stencil separately
+          if(renderstate.dynamicRendering.stencil.imageView != VK_NULL_HANDLE &&
+             (renderstate.dynamicRendering.depth.imageView !=
+                  renderstate.dynamicRendering.stencil.imageView ||
+              renderstate.dynamicRendering.depth.storeOp !=
+                  renderstate.dynamicRendering.stencil.storeOp))
+          {
+            dynAtts.push_back(renderstate.dynamicRendering.stencil);
+            stencilIdx = dynAtts.size() - 1;
+          }
+          // otherwise if the same image is bound and the storeOp is the same then include it
+          else if(renderstate.dynamicRendering.stencil.imageView != VK_NULL_HANDLE)
+          {
+            depthAspects |= VK_IMAGE_ASPECT_STENCIL_BIT;
+          }
+
+          for(size_t i = 0; i < dynAtts.size(); i++)
+          {
+            if(dynAtts[i].imageView == VK_NULL_HANDLE)
+              continue;
+
+            const VulkanCreationInfo::ImageView &viewInfo =
+                m_CreationInfo.m_ImageView[GetResID(dynAtts[i].imageView)];
+            VkImage image = GetResourceManager()->GetCurrentHandle<VkImage>(viewInfo.image);
+
+            if(dynAtts[i].storeOp == VK_ATTACHMENT_STORE_OP_DONT_CARE)
+            {
+              VkImageSubresourceRange range = viewInfo.range;
+
+              if(i == depthIdx)
+                range.aspectMask = depthAspects;
+
+              if(i == stencilIdx)
+                range.aspectMask = VK_IMAGE_ASPECT_STENCIL_BIT;
+
+              GetDebugManager()->FillWithDiscardPattern(commandBuffer, DiscardType::RenderPassStore,
+                                                        image, VK_IMAGE_LAYOUT_UNDEFINED, range,
+                                                        renderstate.renderArea);
+            }
+          }
+        }
       }
     }
     else
@@ -7920,9 +7993,20 @@ bool WrappedVulkan::Serialise_vkCmdBuildAccelerationStructuresKHR(
       if(InRerecordRange(m_LastCmdBufferID))
       {
         commandBuffer = RerecordCmdBuf(m_LastCmdBufferID);
+
+        uint32_t eventId = HandlePreCallback(commandBuffer, ActionFlags::BuildAccStruct);
+
         ObjDisp(commandBuffer)
             ->CmdBuildAccelerationStructuresKHR(Unwrap(commandBuffer), infoCount, unwrappedInfos,
                                                 tmpBuildRangeInfos.data());
+
+        if(eventId && m_ActionCallback->PostMisc(eventId, ActionFlags::BuildAccStruct, commandBuffer))
+        {
+          ObjDisp(commandBuffer)
+              ->CmdBuildAccelerationStructuresKHR(Unwrap(commandBuffer), infoCount, unwrappedInfos,
+                                                  tmpBuildRangeInfos.data());
+          m_ActionCallback->PostRemisc(eventId, ActionFlags::BuildAccStruct, commandBuffer);
+        }
       }
     }
     else
@@ -8023,7 +8107,17 @@ bool WrappedVulkan::Serialise_vkCmdCopyAccelerationStructureKHR(
       if(InRerecordRange(m_LastCmdBufferID))
       {
         commandBuffer = RerecordCmdBuf(m_LastCmdBufferID);
+
+        uint32_t eventId = HandlePreCallback(commandBuffer, ActionFlags::BuildAccStruct);
+
         ObjDisp(commandBuffer)->CmdCopyAccelerationStructureKHR(Unwrap(commandBuffer), &unwrappedInfo);
+
+        if(eventId && m_ActionCallback->PostMisc(eventId, ActionFlags::BuildAccStruct, commandBuffer))
+        {
+          ObjDisp(commandBuffer)->CmdCopyAccelerationStructureKHR(Unwrap(commandBuffer), &unwrappedInfo);
+
+          m_ActionCallback->PostRemisc(eventId, ActionFlags::BuildAccStruct, commandBuffer);
+        }
       }
     }
     else

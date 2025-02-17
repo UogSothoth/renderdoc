@@ -1433,6 +1433,10 @@ static const VkExtensionProperties supportedExtensions[] = {
         VK_KHR_CALIBRATED_TIMESTAMPS_SPEC_VERSION,
     },
     {
+        VK_KHR_COMPUTE_SHADER_DERIVATIVES_EXTENSION_NAME,
+        VK_KHR_COMPUTE_SHADER_DERIVATIVES_SPEC_VERSION,
+    },
+    {
         VK_KHR_COPY_COMMANDS_2_EXTENSION_NAME,
         VK_KHR_COPY_COMMANDS_2_SPEC_VERSION,
     },
@@ -1447,6 +1451,10 @@ static const VkExtensionProperties supportedExtensions[] = {
     {
         VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
         VK_KHR_DEFERRED_HOST_OPERATIONS_SPEC_VERSION,
+    },
+    {
+        VK_KHR_DEPTH_CLAMP_ZERO_ONE_EXTENSION_NAME,
+        VK_KHR_DEPTH_CLAMP_ZERO_ONE_SPEC_VERSION,
     },
     {
         VK_KHR_DEPTH_STENCIL_RESOLVE_EXTENSION_NAME,
@@ -1651,8 +1659,16 @@ static const VkExtensionProperties supportedExtensions[] = {
         VK_KHR_RAY_QUERY_SPEC_VERSION,
     },
     {
+        VK_KHR_RAY_TRACING_MAINTENANCE_1_EXTENSION_NAME,
+        VK_KHR_RAY_TRACING_MAINTENANCE_1_SPEC_VERSION,
+    },
+    {
         VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
         VK_KHR_RAY_TRACING_PIPELINE_SPEC_VERSION,
+    },
+    {
+        VK_KHR_RAY_TRACING_POSITION_FETCH_EXTENSION_NAME,
+        VK_KHR_RAY_TRACING_POSITION_FETCH_SPEC_VERSION,
     },
     {
         VK_KHR_RELAXED_BLOCK_LAYOUT_EXTENSION_NAME,
@@ -1683,6 +1699,10 @@ static const VkExtensionProperties supportedExtensions[] = {
         VK_KHR_SHADER_DRAW_PARAMETERS_SPEC_VERSION,
     },
     {
+        VK_KHR_SHADER_EXPECT_ASSUME_EXTENSION_NAME,
+        VK_KHR_SHADER_EXPECT_ASSUME_SPEC_VERSION,
+    },
+    {
         VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME,
         VK_KHR_SHADER_FLOAT16_INT8_SPEC_VERSION,
     },
@@ -1691,12 +1711,24 @@ static const VkExtensionProperties supportedExtensions[] = {
         VK_KHR_SHADER_FLOAT_CONTROLS_SPEC_VERSION,
     },
     {
+        VK_KHR_SHADER_FLOAT_CONTROLS_2_EXTENSION_NAME,
+        VK_KHR_SHADER_FLOAT_CONTROLS_2_SPEC_VERSION,
+    },
+    {
         VK_KHR_SHADER_INTEGER_DOT_PRODUCT_EXTENSION_NAME,
         VK_KHR_SHADER_INTEGER_DOT_PRODUCT_SPEC_VERSION,
     },
     {
+        VK_KHR_SHADER_MAXIMAL_RECONVERGENCE_EXTENSION_NAME,
+        VK_KHR_SHADER_MAXIMAL_RECONVERGENCE_SPEC_VERSION,
+    },
+    {
         VK_KHR_SHADER_NON_SEMANTIC_INFO_EXTENSION_NAME,
         VK_KHR_SHADER_NON_SEMANTIC_INFO_SPEC_VERSION,
+    },
+    {
+        VK_KHR_SHADER_QUAD_CONTROL_EXTENSION_NAME,
+        VK_KHR_SHADER_QUAD_CONTROL_SPEC_VERSION,
     },
     {
         VK_KHR_SHADER_RELAXED_EXTENDED_INSTRUCTION_EXTENSION_NAME,
@@ -1705,6 +1737,10 @@ static const VkExtensionProperties supportedExtensions[] = {
     {
         VK_KHR_SHADER_SUBGROUP_EXTENDED_TYPES_EXTENSION_NAME,
         VK_KHR_SHADER_SUBGROUP_EXTENDED_TYPES_SPEC_VERSION,
+    },
+    {
+        VK_KHR_SHADER_SUBGROUP_ROTATE_EXTENSION_NAME,
+        VK_KHR_SHADER_SUBGROUP_ROTATE_SPEC_VERSION,
     },
     {
         VK_KHR_SHADER_SUBGROUP_UNIFORM_CONTROL_FLOW_EXTENSION_NAME,
@@ -3260,6 +3296,7 @@ RDResult WrappedVulkan::ReadLogInitialisation(RDCFile *rdc, bool storeStructured
 
     m_IndirectBuffer.Create(this, GetDev(), m_IndirectBufferSize * 2, 1,
                             GPUBuffer::eGPUBufferGPULocal | GPUBuffer::eGPUBufferIndirectBuffer);
+    m_IndirectBuffer.Name("m_IndirectBuffer");
 
     m_IndirectCommandBuffer = GetNextCmd();
 
@@ -4271,7 +4308,7 @@ bool WrappedVulkan::ProcessChunk(ReadSerialiser &ser, VulkanChunk chunk)
       return Serialise_vkCmdSetExtraPrimitiveOverestimationSizeEXT(ser, VK_NULL_HANDLE, 0.0f);
     case VulkanChunk::vkCmdSetLineRasterizationModeEXT:
       return Serialise_vkCmdSetLineRasterizationModeEXT(ser, VK_NULL_HANDLE,
-                                                        VK_LINE_RASTERIZATION_MODE_MAX_ENUM_KHR);
+                                                        VK_LINE_RASTERIZATION_MODE_MAX_ENUM);
     case VulkanChunk::vkCmdSetLineStippleEnableEXT:
       return Serialise_vkCmdSetLineStippleEnableEXT(ser, VK_NULL_HANDLE, VK_FALSE);
     case VulkanChunk::vkCmdSetLogicOpEnableEXT:
@@ -4323,6 +4360,8 @@ bool WrappedVulkan::ProcessChunk(ReadSerialiser &ser, VulkanChunk chunk)
     case VulkanChunk::vkCreateRayTracingPipelinesKHR:
       return Serialise_vkCreateRayTracingPipelinesKHR(ser, VK_NULL_HANDLE, VK_NULL_HANDLE,
                                                       VK_NULL_HANDLE, 0, NULL, NULL, NULL);
+    case VulkanChunk::vkCmdTraceRaysIndirect2KHR:
+      return Serialise_vkCmdTraceRaysIndirect2KHR(ser, VK_NULL_HANDLE, 0);
 
     // chunks that are reserved but not yet serialised
     case VulkanChunk::vkResetCommandPool:

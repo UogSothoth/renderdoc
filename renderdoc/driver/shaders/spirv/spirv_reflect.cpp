@@ -1000,6 +1000,7 @@ void Reflector::MakeReflection(const GraphicsAPI sourceAPI, const ShaderStage st
     case SourceLanguage::NZSL:
     case SourceLanguage::WGSL:
     case SourceLanguage::Zig:
+    case SourceLanguage::Rust:
     case SourceLanguage::Max: break;
   }
 
@@ -1165,6 +1166,10 @@ void Reflector::MakeReflection(const GraphicsAPI sourceAPI, const ShaderStage st
   patchData.usedIds.reserve(usedIds.size());
   for(Id id : usedIds)
     patchData.usedIds.push_back(id);
+
+  patchData.threadScope = m_ThreadScope;
+  if(entry->executionModel == ExecutionModel::Fragment)
+    patchData.threadScope |= ThreadScope::Quad;
 
   // arrays of elements, which can be appended to in any order and then sorted
   rdcarray<SigParameter> inputs;

@@ -31,6 +31,11 @@
 #include "vk_info.h"
 #include "vk_state.h"
 
+namespace rdcspv
+{
+enum class BufferStorageMode : uint32_t;
+};
+
 #if ENABLED(RDOC_WIN32)
 
 #include <windows.h>
@@ -148,6 +153,9 @@ struct VulkanStatePipeline;
 struct VulkanAMDActionCallback;
 
 class NVVulkanCounters;
+
+enum class SubgroupCapability : uint32_t;
+struct SpecData;
 
 struct VulkanPostVSData
 {
@@ -498,13 +506,6 @@ private:
   void FillDescriptor(Descriptor &dstel, const DescriptorSetSlot &srcel);
   void FillSamplerDescriptor(SamplerDescriptor &dstel, const DescriptorSetSlot &srcel);
 
-  void PatchReservedDescriptors(const VulkanStatePipeline &pipe, VkDescriptorPool &descpool,
-                                rdcarray<VkDescriptorSetLayout> &setLayouts,
-                                rdcarray<VkDescriptorSet> &descSets,
-                                VkShaderStageFlagBits patchedBindingStage,
-                                const VkDescriptorSetLayoutBinding *newBindings,
-                                size_t newBindingsCount);
-
   void FetchVSOut(uint32_t eventId, VulkanRenderState &state);
   void FetchTessGSOut(uint32_t eventId, VulkanRenderState &state);
   void FetchMeshOut(uint32_t eventId, VulkanRenderState &state);
@@ -518,6 +519,45 @@ private:
 
   bool GetMinMax(ResourceId texid, const Subresource &sub, CompType typeCast, bool stencil,
                  float *minval, float *maxval);
+
+  struct AddedDescriptorData
+  {
+    WrappedVulkan *m_pDriver = NULL;
+
+    VkDescriptorPool descpool = VK_NULL_HANDLE;
+    rdcarray<VkDescriptorSetLayout> setLayouts;
+    rdcarray<VkDescriptorSet> descSets;
+    VkPipelineLayout pipeLayout = VK_NULL_HANDLE;
+
+    size_t numNewBindings;
+
+    void Free();
+    bool empty() { return m_pDriver == NULL; }
+  };
+
+  ShaderDebugTrace *DebugComputeCommon(ShaderStage stage, uint32_t eventId,
+                                       const rdcfixedarray<uint32_t, 3> &groupid,
+                                       const rdcfixedarray<uint32_t, 3> &threadid);
+
+  void AllocAndAddReservedDescriptors(const VulkanStatePipeline &pipe,
+                                      AddedDescriptorData &patchedBufferData,
+                                      bool vertexPatchedToCompute,
+                                      const rdcarray<VkDescriptorSetLayoutBinding> &newBindings);
+  AddedDescriptorData PrepareExtraBufferDescriptor(
+      VulkanRenderState &state, bool compute,
+      const rdcarray<VkDescriptorSetLayoutBinding> &newBindings, bool vertexPatchedToCompute);
+  void PrepareStateForPatchedShader(
+      const AddedDescriptorData &patchedBufferdata, VulkanRenderState &modifiedstate, bool compute,
+      std::function<bool(const AddedDescriptorData &patchedBufferdata, VkShaderStageFlagBits stage,
+                         const char *entryName, const rdcarray<uint32_t> &origSpirv,
+                         rdcarray<uint32_t> &modSpirv, const VkSpecializationInfo *&specInfo)>
+          stagePatchCallback);
+
+  bool RunFeedbackAction(VkDeviceSize bufferSize, const ActionDescription *action,
+                         VulkanRenderState &modifiedstate);
+
+  void CalculateSubgroupProperties(uint32_t &maxSubgroupSize, SubgroupCapability &subgroupCapability);
+  VkSpecializationInfo MakeSpecInfo(SpecData &specData, VkSpecializationMapEntry *specMaps);
 
   VulkanDebugManager *GetDebugManager();
   VulkanResourceManager *GetResourceManager();
@@ -586,6 +626,8 @@ private:
 
   WrappedVulkan *m_pDriver = NULL;
   VkDevice m_Device = VK_NULL_HANDLE;
+
+  BufferStorageMode m_StorageMode;
 
   // General use/misc items that are used in many places
   struct GeneralMisc
@@ -813,12 +855,17 @@ private:
 
   struct Feedback
   {
+    void ResizeFeedbackBuffer(WrappedVulkan *driver, VkDeviceSize feedbackStorageSize);
+
     void Destroy(WrappedVulkan *driver);
 
+    BufferStorageMode m_StorageMode;
     GPUBuffer FeedbackBuffer;
 
-    std::map<uint32_t, VKDynamicShaderFeedback> Usage;
-  } m_BindlessFeedback;
+    VkPipelineCache PipeCache = VK_NULL_HANDLE;
+  } m_PatchedShaderFeedback;
+
+  std::map<uint32_t, VKDynamicShaderFeedback> m_BindlessFeedback;
 
   ShaderDebugData m_ShaderDebugData;
 

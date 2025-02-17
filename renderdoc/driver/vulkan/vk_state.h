@@ -33,6 +33,10 @@ struct DescSetLayout;
 
 struct VulkanStatePipeline
 {
+  VulkanStatePipeline(VkPipelineBindPoint bindPoint) : bindPoint(bindPoint) {}
+
+  VkPipelineBindPoint bindPoint;
+
   ResourceId pipeline;
 
   // shader object
@@ -164,7 +168,9 @@ struct VulkanRenderState
   bool ActiveRenderPass() const { return renderPass != ResourceId() || dynamicRendering.active; }
   VkRect2D renderArea = {};
 
-  VulkanStatePipeline compute, graphics, rt;
+  VulkanStatePipeline compute = VulkanStatePipeline(VK_PIPELINE_BIND_POINT_COMPUTE);
+  VulkanStatePipeline graphics = VulkanStatePipeline(VK_PIPELINE_BIND_POINT_GRAPHICS);
+  VulkanStatePipeline rt = VulkanStatePipeline(VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR);
 
   VulkanStatePipeline &GetPipeline(VkPipelineBindPoint pipelineBindPoint)
   {
@@ -253,7 +259,7 @@ struct VulkanRenderState
   VkBool32 depthClipEnable = VK_FALSE;
   VkBool32 negativeOneToOne = VK_FALSE;
   float primOverestimationSize = 0.0f;
-  VkLineRasterizationModeKHR lineRasterMode = VK_LINE_RASTERIZATION_MODE_DEFAULT_KHR;
+  VkLineRasterizationMode lineRasterMode = VK_LINE_RASTERIZATION_MODE_DEFAULT;
   VkBool32 stippledLineEnable = VK_FALSE;
   VkBool32 logicOpEnable = VK_FALSE;
   VkPolygonMode polygonMode = VK_POLYGON_MODE_FILL;
