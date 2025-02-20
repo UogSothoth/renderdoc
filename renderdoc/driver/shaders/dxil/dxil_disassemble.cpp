@@ -1158,6 +1158,23 @@ void Program::Parse(const DXBC::Reflection *reflection)
   m_SsaAliases.clear();
   ParseReferences(reflection);
 
+  if(m_Type == DXBC::ShaderType::Compute || m_Type == DXBC::ShaderType::Amplification ||
+     m_Type == DXBC::ShaderType::Mesh)
+  {
+    for(GlobalVar *g : m_GlobalVars)
+    {
+      RDCASSERT(g->type->type == Type::Pointer);
+      if(g->type->type == Type::Pointer && g->type->addrSpace == Type::PointerAddrSpace::GroupShared)
+        m_Threadscope |= DXBC::ThreadScope::Workgroup;
+    }
+
+    for(Function *f : m_Functions)
+    {
+      if(f->name == "dx.op.barrier")
+        m_Threadscope |= DXBC::ThreadScope::Workgroup;
+    }
+  }
+
   m_Parsed = true;
 }
 
@@ -3710,12 +3727,20 @@ void Program::MakeRDDisassemblyString(const DXBC::Reflection *reflection)
                         uint32_t bytesPerElement = 4;
                         if(retType)
                         {
-                          RDCASSERTEQUAL(retType->type, Type::TypeKind::Struct);
                           if(retType->type == Type::TypeKind::Struct)
                           {
                             const Type *baseType = retType->members[0];
                             RDCASSERTEQUAL(baseType->type, Type::TypeKind::Scalar);
                             bytesPerElement = baseType->bitWidth / 8;
+                          }
+                          else if(retType->type == Type::TypeKind::Scalar)
+                          {
+                            const Type *baseType = retType;
+                            bytesPerElement = baseType->bitWidth / 8;
+                          }
+                          else
+                          {
+                            RDCWARN("Unhandled cbuffer return type");
                           }
                         }
                         lineStr +=
@@ -6185,6 +6210,8 @@ rdcpair<int32_t, int32_t> Program::ParseDIExpressionMD(const Metadata *expressio
           break;
         case DXIL::DW_OP::DW_OP_none: break;
         case DXIL::DW_OP::DW_OP_nop: break;
+        case DXIL::DW_OP::DW_OP_plus: RDCERR("DIExpression DW_OP_plus is not implemented"); break;
+        case DXIL::DW_OP::DW_OP_deref: break;
         default: RDCERR("Unhandled DIExpression op %s", ToStr(expression->op).c_str()); break;
       }
     }
@@ -6231,14 +6258,33 @@ SourceMappingInfo Program::ParseDbgOpDeclare(const DXIL::Instruction &inst) cons
   SourceMappingInfo ret;
   ret.isDeclare = true;
 
-  // arg 0 contains the SSA Id of the alloca result which represents the local variable (a pointer)
+  // arg 0 contains the SSA Id of the result which represents the local variable (a pointer)
   const Metadata *allocaInstMD = cast<Metadata>(inst.args[0]);
   RDCASSERT(allocaInstMD);
-  const Instruction *allocaInst = cast<Instruction>(allocaInstMD->value);
-  RDCASSERT(allocaInst);
-  RDCASSERTEQUAL(allocaInst->op, Operation::Alloca);
-  ret.dbgVarId = Program::GetResultSSAId(*allocaInst);
-  Program::MakeResultId(*allocaInst, ret.dbgVarName);
+  const DXIL::Value *value = allocaInstMD->value;
+  const Instruction *varInst = cast<Instruction>(value);
+  if(varInst)
+  {
+    // Instruction can be alloca or NoOp
+    RDCASSERT(varInst->op == Operation::Alloca || varInst->op == Operation::NoOp);
+    ret.dbgVarId = Program::GetResultSSAId(*varInst);
+    Program::MakeResultId(*varInst, ret.dbgVarName);
+  }
+  else
+  {
+    const GlobalVar *gv = cast<GlobalVar>(allocaInstMD->value);
+    if(gv)
+    {
+      ret.dbgVarId = gv->ssaId;
+      rdcstr n = DXBC::BasicDemangle(gv->name);
+      DXIL::SanitiseName(n);
+      ret.dbgVarName = n;
+    }
+    else
+    {
+      RDCERR("Unhandled metadata value type %s", ToStr(allocaInstMD->value->kind()).c_str());
+    }
+  }
 
   // arg 1 is DILocalVariable metadata
   const Metadata *localVariableMD = cast<Metadata>(inst.args[1]);
